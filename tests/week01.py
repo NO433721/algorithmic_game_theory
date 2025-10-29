@@ -240,17 +240,14 @@ def iterated_removal_of_dominated_strategies(
         col_remove = []
 
         for i in range(reduced_matrix1.shape[0]):
-            ge = reduced_matrix1 >= reduced_matrix1[i, :][None, :]          # ≥ componentwise
-            gt = reduced_matrix1 >  reduced_matrix1[i, :][None, :]          # > somewhere
-            result = np.all(ge, axis=1) & np.any(gt, axis=1)
-            result[i] = False
-
+            gt = reduced_matrix1 > reduced_matrix1[i, :][None, :]   
+            result = np.all(gt, axis=1)
+            result[i] = False  
             if result.any():
                 row_remove.append(i)
                 
                 
         if row_remove:
-            # remove ONLY the smallest-index dominated row, then restart
             i = min(row_remove)
             reduced_matrix1 = np.delete(reduced_matrix1, i, axis=0)
             reduced_matrix2 = np.delete(reduced_matrix2, i, axis=0)
@@ -258,17 +255,14 @@ def iterated_removal_of_dominated_strategies(
             continue
 
 
-        for i in range(reduced_matrix2.shape[1]):
-            ge = reduced_matrix2 >= reduced_matrix2[:, i][:, None]
-            gt = reduced_matrix2 >  reduced_matrix2[:, i][:, None]
-            result = np.all(ge, axis=0) & np.any(gt, axis=0)
-            result[i] = False
-
+        for j in range(reduced_matrix2.shape[1]):
+            gt = reduced_matrix2 > reduced_matrix2[:, j][:, None]   
+            result = np.all(gt, axis=0)
+            result[j] = False
             if result.any():
-                col_remove.append(i)
+                col_remove.append(j)
                 
         if col_remove:
-            # remove ONLY the smallest-index dominated column, then restart
             j = min(col_remove)
             reduced_matrix1 = np.delete(reduced_matrix1, j, axis=1)
             reduced_matrix2 = np.delete(reduced_matrix2, j, axis=1)
