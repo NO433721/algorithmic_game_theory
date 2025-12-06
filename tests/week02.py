@@ -79,7 +79,6 @@ def verify_support(
     b_eq[-1]=1
 
     c = np.zeros(A_eq.shape[1])
-    c[-1] = -1
 
     bounds = [(0, None) for _ in range(A_eq.shape[1])]
     bounds[-1]=(None, None)
@@ -104,8 +103,7 @@ def verify_support(
                      bounds=bounds, method="highs")
 
     if result.success and result.x.size == A_eq.shape[1]:
-        q = result.x[:-1].astype(np.float64)   
-        v = float(result.x[-1])                
+        q = result.x[:-1].astype(np.float64)                 
 
         return q
     else:
