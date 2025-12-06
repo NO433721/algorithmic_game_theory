@@ -83,23 +83,8 @@ def verify_support(
     bounds = [(0, None) for _ in range(A_eq.shape[1])]
     bounds[-1]=(None, None)
 
-    m, _ = matrix.shape                                    
-    mask_off = np.ones(m, dtype=bool); mask_off[row_support] = False
-    if np.any(mask_off):
-        Aoff = matrix[np.ix_(np.where(mask_off)[0], col_support)] 
-
-        A_ub = np.hstack([Aoff, -np.ones((Aoff.shape[0], 1))])
-        A_ub = np.vstack([A_ub, np.ones((A_ub.shape[1]))])
-
-        A_ub[-1, -1]=0       
-
-        b_ub = np.zeros(A_ub.shape[0])
-        b_ub[-1] = 1
-    else:
-        A_ub = None; b_ub = None
-
     
-    result = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
+    result = linprog(c, A_eq=A_eq, b_eq=b_eq,
                      bounds=bounds, method="highs")
 
     if result.success and result.x.size == A_eq.shape[1]:
