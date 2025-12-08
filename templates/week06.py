@@ -52,61 +52,48 @@ def regret_minimization(
     list[tuple[np.ndarray, np.ndarray]]
         The sequence of `num_iters` average strategy profiles produced by the algorithm
     """
-
     num_row_actions = row_matrix.shape[0]
     num_col_actions = col_matrix.shape[1]
 
-    row_strategy = np.ones(num_row_actions) / num_row_actions
-    col_strategy = np.ones(num_col_actions) / num_col_actions
+    
+    row_strategy = np.ones(num_row_actions, dtype=float) / num_row_actions
+    col_strategy = np.ones(num_col_actions, dtype=float) / num_col_actions
+
+    
+    cumulative_regret_row = np.zeros(num_row_actions, dtype=float)
+    cumulative_regret_col = np.zeros(num_col_actions, dtype=float)
+
+  
+    avg_row_strategy = np.zeros(num_row_actions, dtype=float)
+    avg_col_strategy = np.zeros(num_col_actions, dtype=float)
+
+    avg_strategies: list[tuple[np.ndarray, np.ndarray]] = []
+
+    for t in range(1, num_iters + 1):
+
+        row_payoffs = row_matrix @ col_strategy
+
+        col_payoffs = row_strategy @ col_matrix
 
 
-    cumulative_regret_row = np.zeros(num_row_actions)
-    cumulative_regret_col = np.zeros(num_col_actions)
+        expected_payoff_row = float(np.dot(row_strategy, row_payoffs))
+        expected_payoff_col = float(np.dot(col_strategy, col_payoffs))
 
-
-    avg_row_strategy = np.zeros(num_row_actions)
-    avg_col_strategy = np.zeros(num_col_actions)
-    avg_strategies=[]
-
-    epochs = num_iters
-
-    for epoch in range(1, epochs + 1):
-     
-        row_payoffs = row_matrix @ col_strategy  
-        col_payoffs = row_strategy @ col_matrix  
-
-        expected_payoff_row = np.dot(row_strategy, row_payoffs)
-        expected_payoff_col = np.dot(col_strategy, col_payoffs) #!
-
-        
-        best_response_row = np.max(row_payoffs)
-        best_response_col = np.max(col_payoffs)
-
-     
+ 
         cumulative_regret_row += row_payoffs - expected_payoff_row
         cumulative_regret_col += col_payoffs - expected_payoff_col
 
-      
-        positive_regret_row = np.maximum(cumulative_regret_row, 0)
-        positive_regret_col = np.maximum(cumulative_regret_col, 0)
+
+        avg_row_strategy = ((t - 1) * avg_row_strategy + row_strategy) / t
+        avg_col_strategy = ((t - 1) * avg_col_strategy + col_strategy) / t
+
+ 
+        avg_strategies.append((avg_row_strategy.copy(), avg_col_strategy.copy()))
 
 
-        if np.sum(positive_regret_row) > 0:
-            row_strategy = positive_regret_row / np.sum(positive_regret_row)
-        else:
-            row_strategy = np.ones(num_row_actions) / num_row_actions  
+        row_strategy = regret_matching(cumulative_regret_row)
+        col_strategy = regret_matching(cumulative_regret_col)
 
-        if np.sum(positive_regret_col) > 0:
-            col_strategy = positive_regret_col / np.sum(positive_regret_col)
-        else:
-            col_strategy = np.ones(num_col_actions) / num_col_actions  
-
-   
-        avg_row_strategy = (avg_row_strategy * (epoch - 1) + row_strategy) / epoch
-        avg_col_strategy = (avg_col_strategy * (epoch - 1) + col_strategy) / epoch
-
-        avg_strategies.append((avg_row_strategy, avg_col_strategy))
-    #raise NotImplementedError
     return avg_strategies
 
 

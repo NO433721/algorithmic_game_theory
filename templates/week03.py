@@ -34,11 +34,11 @@ def compute_deltas(
     """
 
     row_expected_payoff=row_strategy@row_matrix@col_strategy
-    row_best_response_payoff=max(row_matrix@col_strategy)
+    row_best_response_payoff=np.max(row_matrix@col_strategy)
     row_delta=row_best_response_payoff-row_expected_payoff
 
     col_expected_payoff=row_strategy@col_matrix@col_strategy
-    col_best_response_payoff=max(row_strategy@col_matrix)
+    col_best_response_payoff=np.max(row_strategy@col_matrix)
     col_delta=col_best_response_payoff-col_expected_payoff
 
     return np.asarray([row_delta, col_delta])
@@ -70,7 +70,7 @@ def compute_nash_conv(
         The NashConv value of the given strategy profile
     """
 
-    return np.sum(compute_deltas(row_strategy, col_strategy, row_matrix, col_matrix))
+    return np.sum(compute_deltas(row_matrix, col_matrix, row_strategy, col_strategy))
 
 
 def compute_exploitability(
@@ -97,7 +97,7 @@ def compute_exploitability(
     np.float64
         The exploitability value of the given strategy profile
     """
-    return compute_nash_conv(row_strategy, col_strategy, row_matrix, col_matrix)/2
+    return compute_nash_conv(row_matrix, col_matrix, row_strategy, col_strategy,)/2
 
     # raise NotImplementedError
 
@@ -130,34 +130,42 @@ def fictitious_play(
     """
 
     # raise NotImplementedError
-    avg_strategies=[]
+    avg_strategies = []
 
-    row_strategy=np.ones(row_matrix.shape[0])/row_matrix.shape[0]
-    col_strategy=np.ones(col_matrix.shape[1])/col_matrix.shape[1]
+    m, n = row_matrix.shape
+    row_strategy = np.ones(m, dtype=np.float64) / m      
+    col_strategy = np.ones(n, dtype=np.float64) / n
 
-    freq_row=np.zeros(row_matrix.shape[0])
-    freq_col=np.zeros(col_matrix.shape[1])
+    freq_row = np.zeros(m, dtype=np.float64)             
+    freq_col = np.zeros(n, dtype=np.float64)
 
     for epoch in range(num_iters):
+       
+        if epoch == 0:
+            prev_avg_row = row_strategy                   
+            prev_avg_col = col_strategy
+        else:
+            prev_avg_row = freq_row / epoch
+            prev_avg_col = freq_col / epoch
+
+        if naive:
+            
+            br_row = int(np.argmax(row_matrix @ col_strategy))
+            br_col = int(np.argmax(row_strategy @ col_matrix))
+        else:
+            
+            br_row = int(np.argmax(row_matrix @ prev_avg_col))
+            br_col = int(np.argmax(prev_avg_row @ col_matrix))
+
+        row_strategy = np.zeros(m, dtype=np.float64); row_strategy[br_row] = 1.0
+        col_strategy = np.zeros(n, dtype=np.float64); col_strategy[br_col] = 1.0
+
         freq_row += row_strategy
         freq_col += col_strategy
 
-        avg_row_strategy= freq_row / (epoch + 1)
-        avg_col_strategy= freq_col / (epoch + 1)
-        avg_strategies.append((avg_row_strategy, avg_col_strategy))
-
-        if naive:
-            best_response_row=np.argmax(row_matrix @ col_strategy)
-            best_response_col=np.argmax(row_strategy @ col_matrix)
-        else:
-            best_response_row=np.argmax(row_matrix @ avg_col_strategy)
-            best_response_col=np.argmax(avg_row_strategy @ col_matrix)
-
-        row_strategy=np.zeros(row_matrix.shape[0])
-        row_strategy[best_response_row]=1
-
-        col_strategy=np.zeros(col_matrix.shape[1])
-        col_strategy[best_response_col]=1
+        avg_row_strategy = (freq_row / (epoch + 1)).astype(np.float64, copy=False)
+        avg_col_strategy = (freq_col / (epoch + 1)).astype(np.float64, copy=False)
+        avg_strategies.append((avg_row_strategy.copy(), avg_col_strategy.copy()))
 
     return avg_strategies
 
@@ -191,7 +199,7 @@ def plot_exploitability(
     exploitabilities = []
 
     for row_strategy, col_strategy in strategies:
-        exploitabilities.append(compute_exploitability(row_strategy, col_strategy, row_matrix, col_matrix))
+        exploitabilities.append(compute_exploitability(row_matrix, col_matrix, row_strategy, col_strategy))
 
     plt.plot(exploitabilities, label=label)
 

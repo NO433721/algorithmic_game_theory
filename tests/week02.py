@@ -158,17 +158,20 @@ def support_enumeration(
                             col_strategy = np.zeros(col_matrix.shape[1], dtype=np.float64)
                             col_strategy[np.asarray(col_support, dtype=int)] = col_probs_on_sup
 
-                            u1 = row_matrix @ col_strategy
-                            v1 = np.max(u1)
-                            if not np.allclose(u1[list(row_support)], v1):
-                                continue
                             
-                            u2 = row_strategy @ col_matrix
-                            v2 = np.max(u2)
-                            if not np.allclose(u2[list(col_support)], v2):
-                                continue
+                            payoff_row = row_strategy @ row_matrix @ col_strategy
+                            payoff_col = row_strategy @ col_matrix @ col_strategy
+
+                        
+                            row_dev_payoff = np.max(row_matrix @ col_strategy)
+
                             
-                            nash_equilibria.append((row_strategy, col_strategy))
+                            col_dev_payoff = np.max(row_strategy @ col_matrix)
+
+                            epsilon = 1e-7
+                            if (row_dev_payoff <= payoff_row + epsilon) and (col_dev_payoff <= payoff_col + epsilon):
+                            
+                                nash_equilibria.append((row_strategy, col_strategy))
                             
     return nash_equilibria
 
