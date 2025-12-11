@@ -17,7 +17,6 @@ pretty much impossible.
 import numpy as np
 import kuhn_poker
 
-# --- Node Classes (Same as your definition) ---
 class Node:
     def __init__(self, state: kuhn_poker.State, history):
         self.state = state
@@ -49,7 +48,7 @@ class PlayerNode(Node):
         return (my_card, betting_history)
 
 def traverse_tree(env, state:kuhn_poker.State|None = None, history = None):
-    # Key: (card, betting_history), Value: List of nodes belonging to this set
+    
     info_sets = {}
 
     def _traverse(curr_state:kuhn_poker.State, curr_history):
@@ -57,13 +56,16 @@ def traverse_tree(env, state:kuhn_poker.State|None = None, history = None):
             return TerminalNode(curr_state, curr_history)
 
         if curr_state.is_chance_node:
+
             node = ChanceNode(curr_state, curr_history)
             probs = curr_state.chance_strategy
             for action, is_legal in enumerate(curr_state.legal_action_mask):
                 if is_legal:
                     next_state = env.step(curr_state, action)
                     child = _traverse(next_state, curr_history + [action])
+
                     node.children[action] = (child, probs[action])
+
             return node
         
         else: 
@@ -79,6 +81,7 @@ def traverse_tree(env, state:kuhn_poker.State|None = None, history = None):
                 if is_legal:
                     next_state = env.step(curr_state, action)
                     child = _traverse(next_state, curr_history + [action])
+                    
                     node.children[action] = child
             return node
 
@@ -89,17 +92,118 @@ def traverse_tree(env, state:kuhn_poker.State|None = None, history = None):
     root_node = _traverse(state, history)
     
     return root_node, info_sets
+
+
+def evaluate(node, strategies):
+    if node.is_terminal:
+        return node.payoffs
+
+    expected_utility = np.zeros(2)
+
+    if isinstance(node, ChanceNode):
+        
+        for action, (child_node, prob) in node.children.items():
+            child_value = evaluate(child_node, strategies)
+            expected_utility += prob * child_value
+
+    elif isinstance(node, PlayerNode):
+        if node.info_set in strategies:
+                action_probs = strategies[node.info_set]
+        else:
+            num_actions = len(node.children)
+            action_probs = np.ones(3) / 3
+        
+        for action, child_node in node.children.items():
+            prob = action_probs[action]
+            
+
+            child_value = evaluate(child_node, strategies)
+            
+
+            expected_utility += prob * child_value
+
+    return expected_utility
+
+def compute_best_response(root, player_id, opponent_strategy, info_sets):
     
-def evaluate(*args, **kwargs):
-    """Compute the expected utility of each player in an extensive-form game."""
+    def annotate_cf_reach(node, p_opp_chance):
+        node.cf_reach = p_opp_chance
+        
+        if node.is_terminal:
+            return
 
-    raise NotImplementedError
+        if isinstance(node, ChanceNode):
+            for action, (child, prob) in node.children.items():
+                annotate_cf_reach(child, p_opp_chance * prob)
+                
+        elif isinstance(node, PlayerNode):
+            if node.player == player_id:
+                for action, child in node.children.items():
+                    annotate_cf_reach(child, p_opp_chance)
+            else:
+
+                if node.info_set in opponent_strategy:
+                    strat = opponent_strategy[node.info_set]
+                else:
+                    strat = np.ones(len(node.children)) / len(node.children)
+                
+                for action, child in node.children.items():
+                    annotate_cf_reach(child, p_opp_chance * strat[action])
+
+    annotate_cf_reach(root, 1.0)
 
 
-def compute_best_response(*args, **kwargs):
-    """Compute a best response strategy for a given player against a fixed opponent's strategy."""
+    br_strategy = {}
+    
+    
+    def get_value(node):
+        if node.is_terminal:
+            return node.payoffs[player_id]
+        
+        if isinstance(node, ChanceNode):
+            ev = 0.0
+            for action, (child, prob) in node.children.items():
+                ev += prob * get_value(child)
+            return ev
+            
+        if node.player != player_id:
+            ev = 0.0
+            if node.info_set in opponent_strategy:
+                strat = opponent_strategy[node.info_set]
+            else:
+                strat = np.ones(len(node.children)) / len(node.children)
+                
+            for action, child in node.children.items():
+                ev += strat[action] * get_value(child)
+            return ev
 
-    raise NotImplementedError
+        if node.info_set not in br_strategy:
+            nodes_in_set = info_sets[node.info_set]
+            num_actions = len(node.children)
+            
+            action_values = np.zeros(num_actions)
+            
+            for h_node in nodes_in_set:
+                for action, child in h_node.children.items():
+                    
+                    val_child = get_value(child)
+                    action_values[action] += h_node.cf_reach * val_child
+            
+            
+            best_action = np.argmax(action_values)
+            
+            
+            strat_vec = np.zeros(num_actions)
+            strat_vec[best_action] = 1.0
+            br_strategy[node.info_set] = strat_vec
+            
+        chosen_strat = br_strategy[node.info_set]
+        chosen_action = np.argmax(chosen_strat)
+        return get_value(node.children[chosen_action])
+
+    get_value(root)
+    
+    return br_strategy
 
 
 def compute_average_strategy(*args, **kwargs):

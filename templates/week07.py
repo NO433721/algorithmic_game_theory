@@ -16,63 +16,82 @@ pretty much impossible.
 """
 
 import numpy as np
-
-import numpy as np
-from collections import defaultdict
+import kuhn_poker
 
 class Node:
-    def __init__(self, state, parent=None, action_to_reach=None):
+    def __init__(self, state: kuhn_poker.State, history):
         self.state = state
-        self.parent = parent
-        self.action_to_reach = action_to_reach
-        self.children = {}  # Map action -> Node
-        self.is_terminal = state.terminated or state.truncated
-        self.is_chance = state.is_chance_node
-        self.player = state.current_player # 0 or 1, or -1 for chance
-        
-        # Unique identifier for the Information Set (used for looking up strategies)
-        # In Kuhn poker, info set is defined by (MyCard, HistoryOfBets)
-        # We can construct a string key for this.
-        self.infostet_key = self._get_infoset_key(state)
+        self.history = tuple(int(h) for h in history)``````````
 
-    def _get_infoset_key(self, state):
-        if self.is_terminal or self.is_chance:
-            return None
-        # Simplified key generation for Kuhn Poker: 
-        # Player ID + Card held + Betting History
-        # Note: You might need to adjust this based on the exact pgx state attributes available
-        # or construct it manually during traversal.
-        # For this template, we assume a unique string can be made.
-        return str(state) 
+class TerminalNode(Node):
+    def __init__(self, state: kuhn_poker.State, history):
+        super().__init__(state, history)
+        self.payoffs = np.array(state.rewards)
+        self.is_terminal = True
 
-def traverse_tree(env):
+class ChanceNode(Node):
+    def __init__(self, state: kuhn_poker.State, history):
+        super().__init__(state, history)
+        self.children = {} 
+        self.is_terminal = False
+
+class PlayerNode(Node):
+    def __init__(self, state: kuhn_poker.State, history):
+        super().__init__(state, history)
+        self.player = int(state.current_player)
+        self.children = {}
+        self.is_terminal = False
+        self.info_set = self._get_info_set()
+
+    def _get_info_set(self):
+        my_card = self.history[self.player]
+        betting_history = self.history[2:]
+        return (my_card, betting_history)
+
+
+
+def traverse_tree(env, state:kuhn_poker.State|None = None, history = None):
     """Builds the full game tree via BFS/DFS."""
-    root_state = env.init(0) # Seed doesn't matter for traversal if we explore all branches
-    root = Node(root_state)
-    
-    stack = [root]
-    
-    # Store all nodes belonging to a specific info set
-    infosets = defaultdict(list) 
+    info_sets = {}
 
-    while stack:
-        current_node = stack.pop()
+    def _traverse(curr_state:kuhn_poker.State, curr_history):
+        if curr_state.terminated or curr_state.truncated:
+            return TerminalNode(curr_state, curr_history)
+
+        if curr_state.is_chance_node:
+            node = ChanceNode(curr_state, curr_history)
+            probs = curr_state.chance_strategy
+            for action, is_legal in enumerate(curr_state.legal_action_mask):
+                if is_legal:
+                    next_state = env.step(curr_state, action)
+                    child = _traverse(next_state, curr_history + [action])
+                    node.children[action] = (child, probs[action])
+            return node
         
-        if not current_node.is_terminal:
-            if current_node.infostet_key:
-                infosets[current_node.infostet_key].append(current_node)
-
-            # Get legal actions
-            mask = current_node.state.legal_action_mask
-            actions = np.where(mask)[0]
+        else: 
+            node = PlayerNode(curr_state, curr_history)
             
-            for action in actions:
-                next_state = env.step(current_node.state, action)
-                child = Node(next_state, parent=current_node, action_to_reach=action)
-                current_node.children[action] = child
-                stack.append(child)
-                
-    return root, infosets
+            
+            if node.info_set not in info_sets:
+                info_sets[node.info_set] = []
+            info_sets[node.info_set].append(node)
+            
+
+            for action, is_legal in enumerate(curr_state.legal_action_mask):
+                if is_legal:
+                    next_state = env.step(curr_state, action)
+                    child = _traverse(next_state, curr_history + [action])
+                    node.children[action] = child
+            return node
+
+    if state is None:
+        state = env.init(0)
+        history = []
+        
+    root_node = _traverse(state, history)
+    
+    return root_node, info_sets
+   
 
 
 def evaluate(*args, **kwargs):
