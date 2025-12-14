@@ -94,7 +94,7 @@ def traverse_tree(env, state:kuhn_poker.State|None = None, history = None):
     return root_node, info_sets
 
 
-def evaluate(node, strategies):
+def evaluate(node: Node, strategies):
     if node.is_terminal:
         return node.payoffs
 
@@ -107,11 +107,13 @@ def evaluate(node, strategies):
             expected_utility += prob * child_value
 
     elif isinstance(node, PlayerNode):
-        if node.info_set in strategies:
-                action_probs = strategies[node.info_set]
+        
+        if node.player in strategies and node.info_set in strategies[node.player]:
+            action_probs = strategies[node.player][node.info_set]
+
         else:
             num_actions = len(node.children)
-            action_probs = np.ones(3) / 3
+            action_probs = np.ones(num_actions) / num_actions
         
         for action, child_node in node.children.items():
             prob = action_probs[action]
@@ -206,12 +208,57 @@ def compute_best_response(root, player_id, opponent_strategy, info_sets):
     return br_strategy
 
 
-def compute_average_strategy(*args, **kwargs):
+def compute_average_strategy(root_node, strategy_a, strategy_b, alpha, player_id):
     """Compute a weighted average of a pair of behavioural strategies for a given player."""
+    avg_strategy = {}
 
-    raise NotImplementedError
+    def _traverse(node, reach_a, reach_b):
+        if node.is_terminal:
+            return
 
+        if isinstance(node, ChanceNode):
+            for action, (child, prob) in node.children.items():
+                _traverse(child, reach_a, reach_b)
 
+        elif isinstance(node, PlayerNode):
+            if node.player == player_id:
+                num_actions = len(node.children)
+                
+                if node.info_set in strategy_a:
+                    probs_a = strategy_a[node.info_set]
+                else:
+                    probs_a = np.ones(num_actions) / num_actions
+                    
+                if node.info_set in strategy_b:
+                    probs_b = strategy_b[node.info_set]
+                else:
+                    probs_b = np.ones(num_actions) / num_actions
+
+                denom = (1 - alpha) * reach_a + alpha * reach_b
+                
+                if denom > 0:
+                    new_probs = ((1 - alpha) * reach_a * probs_a + 
+                                 alpha * reach_b * probs_b) / denom
+                else:
+                    new_probs = np.ones(num_actions) / num_actions
+
+                avg_strategy[node.info_set] = new_probs
+
+                for action, child in node.children.items():
+                    _traverse(
+                        child, 
+                        reach_a * probs_a[action], 
+                        reach_b * probs_b[action]
+                    )
+            else:
+                for action, child in node.children.items():
+                    _traverse(child, reach_a, reach_b)
+
+    _traverse(root_node, 1.0, 1.0)
+    
+    return avg_strategy
+
+            
 def compute_exploitability(*args, **kwargs):
     """Compute and plot the exploitability of a sequence of strategy profiles."""
 
