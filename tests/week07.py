@@ -14,6 +14,7 @@ the most suitable representations is an important part of assignments
 in this block. Unfortunately, this freedom makes automated testing
 pretty much impossible.
 """
+import matplotlib.pyplot as plt
 import numpy as np
 import kuhn_poker
 
@@ -27,6 +28,7 @@ class TerminalNode(Node):
         super().__init__(state, history)
         self.payoffs = np.array(state.rewards)
         self.is_terminal = True
+        
 
 class ChanceNode(Node):
     def __init__(self, state: kuhn_poker.State, history):
@@ -95,6 +97,7 @@ def traverse_tree(env, state:kuhn_poker.State|None = None, history = None):
 
 
 def evaluate(node: Node, strategies):
+    """Compute the expected utility of each player in an extensive-form game."""
     if node.is_terminal:
         return node.payoffs
 
@@ -128,9 +131,10 @@ def evaluate(node: Node, strategies):
 
 def compute_best_response(root, player_id, opponent_strategy, info_sets):
     
+    cf_reach = {}
     def annotate_cf_reach(node, p_opp_chance):
-        node.cf_reach = p_opp_chance
-        
+        cf_reach[node] = p_opp_chance
+
         if node.is_terminal:
             return
 
@@ -186,11 +190,11 @@ def compute_best_response(root, player_id, opponent_strategy, info_sets):
             action_values = np.zeros(num_actions)
             
             for h_node in nodes_in_set:
+                reach_prob = cf_reach[h_node]
+                
                 for action, child in h_node.children.items():
-                    
                     val_child = get_value(child)
-                    action_values[action] += h_node.cf_reach * val_child
-            
+                    action_values[action] += reach_prob * val_child            
             
             best_action = np.argmax(action_values)
             
@@ -259,17 +263,101 @@ def compute_average_strategy(root_node, strategy_a, strategy_b, alpha, player_id
     return avg_strategy
 
 
-def fictitious_play(*args, **kwargs):
+def fictitious_play(root, info_sets, num_iters=10):
     """Run Extensive-form Fictitious Play for a given number of iterations."""
 
-    raise NotImplementedError
-
+    avg_strategies = {} 
+    
+    for nodes in info_sets.values():
+        node = nodes[0]
+        pid = node.player
+        
+        if pid not in avg_strategies:
+            avg_strategies[pid] = {}
             
-def compute_exploitability(*args, **kwargs):
+        if node.info_set not in avg_strategies[pid]:
+            num_actions = len(node.children)
+            avg_strategies[pid][node.info_set] = np.ones(num_actions) / num_actions
+
+    players = sorted(avg_strategies.keys())
+    
+    history = []
+
+    for t in range(1, num_iters + 1):
+        alpha = 1.0 / (t + 1)
+        
+        next_avg_strategies = {pid: {} for pid in players}
+        
+        for player_id in players:
+            
+            opponent_strategy = {}
+            for other_pid in players:
+                if other_pid != player_id:
+                    opponent_strategy.update(avg_strategies[other_pid])
+            
+            br_strat = compute_best_response(root, player_id, opponent_strategy, info_sets)
+            
+            current_player_avg = avg_strategies[player_id]
+            
+            new_player_avg = compute_average_strategy(
+                root, 
+                current_player_avg, 
+                br_strat, 
+                alpha, 
+                player_id
+            )
+            
+            next_avg_strategies[player_id] = new_player_avg
+
+        avg_strategies = next_avg_strategies
+        
+        history.append(avg_strategies)
+
+    return history
+            
+def compute_exploitability(root, info_sets, strategy_sequence, plot=True):
     """Compute and plot the exploitability of a sequence of strategy profiles."""
+    exploitability_values = []
 
-    raise NotImplementedError
+    for strategies in strategy_sequence:
+        
+        current_utilities = evaluate(root, strategies)
+        num_players = len(current_utilities)
+        
+        total_nash_conv = 0.0
+        
+        for player_id in range(num_players):
+            
+            opponent_strategy = {}
+            for pid, strat in strategies.items():
+                if pid != player_id:
+                    opponent_strategy.update(strat)
+            
+            br_strategy = compute_best_response(root, player_id, opponent_strategy, info_sets)
+            
+            br_profile = strategies.copy()
+            br_profile[player_id] = br_strategy
+            
+            br_utilities = evaluate(root, br_profile)
+            br_value = br_utilities[player_id]
+            
+            incentive = br_value - current_utilities[player_id]
+            total_nash_conv += incentive
 
+        exploitability = total_nash_conv / num_players
+        exploitability_values.append(exploitability)
+
+    if plot:
+        plt.figure(figsize=(10, 6))
+        plt.plot(range(len(exploitability_values)), exploitability_values, label='Exploitability')
+        plt.xlabel('Iteration')
+        plt.ylabel('Exploitability (Avg NashConv)')
+        plt.title('Convergence of Exploitability over Time')
+        plt.grid(True)
+        plt.legend()
+        plt.show()
+
+    return exploitability_values
 
 def main() -> None:
     from kuhn_poker import KuhnPokerNumpy as KuhnPoker
