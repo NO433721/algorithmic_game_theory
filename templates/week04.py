@@ -3,53 +3,6 @@
 import numpy as np
 from scipy.optimize import linprog
 
-def solve_for_nash_col(matrix: np.ndarray) -> np.ndarray:
-    # for column player
-    A_ub = np.asarray(matrix)
-    A_ub = np.hstack((A_ub, -np.ones((A_ub.shape[0], 1))))
-    #print(A_ub)
-
-    A_eq = np.ones((1,A_ub.shape[1]))
-    A_eq[-1,-1] = 0
-
-    c = np.asarray([0] * (A_ub.shape[1] - 1) + [1])
-
-    b_ub = np.zeros(A_ub.shape[0])
-    b_eq = np.ones((1,1))
-
-    bounds = [(0, None)] * (A_ub.shape[1] - 1) + [(None, None)]
-    #print(bounds)
-
-    result = linprog(c, A_ub=A_ub, A_eq=A_eq, b_ub=b_ub, b_eq=b_eq, bounds=bounds, method="highs")
-    #print(result)
-
-    if result.success:
-        return result.x[:-1]
-
-def solve_for_nash_row(matrix: np.ndarray) -> np.ndarray:
-
-    A_ub = np.asarray(matrix)
-    A_ub=-A_ub.T
-
-    A_ub = np.hstack((A_ub, np.ones((A_ub.shape[0], 1))))
-
-    A_eq = np.ones((1,A_ub.shape[1]))
-    A_eq[-1,-1] = 0
-
-    c = np.asarray([0] * (A_ub.shape[1] - 1) + [-1])
-
-    b_ub = np.zeros(A_ub.shape[0])
-    b_eq = np.ones((1,1))
-
-    bounds = [(0, None)] * (A_ub.shape[1] - 1) + [(None, None)]
-    #print(bounds)
-
-    result = linprog(c, A_ub=A_ub, A_eq=A_eq, b_ub=b_ub, b_eq=b_eq, bounds=bounds, method="highs")
-    #print(result)
-
-    if result.success:
-        return result.x[:-1]
-
 def find_nash_equilibrium(row_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Find a Nash equilibrium in a zero-sum normal-form game using linear programming.
 
@@ -63,10 +16,36 @@ def find_nash_equilibrium(row_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarra
     tuple[np.ndarray, np.ndarray]
         A strategy profile that forms a Nash equilibrium
     """
-    row_strategy=solve_for_nash_row(row_matrix)
-    col_strategy=solve_for_nash_col(row_matrix)
+    def solve(row_matrix: np.ndarray):
+        A = np.asarray(row_matrix)
+
+        m, n = row_matrix.shape
+        c = np.zeros(m + 1)
+        c[-1] = -1.0
+
+        A_ub = np.hstack([-A.T, np.ones((n, 1))])
+        b_ub = np.zeros(n)
+
+        A_eq = np.zeros((1, m + 1))
+        A_eq[0, :m] = 1.0
+        b_eq = np.array([1.0])
+
+        bounds = [(0.0, None)] * m + [(None, None)]
+
+
+        row_result = linprog(
+            c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method="highs"
+        )
+        
+        if not row_result.success:
+                        raise RuntimeError(f"LP failed: {row_result.message}")
+        return row_result.x[:m]
+
+    row_strategy=solve(row_matrix)
+    col_strategy=solve(-row_matrix.T)
 
     return row_strategy, col_strategy
+
 
 
 
