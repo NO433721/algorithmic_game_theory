@@ -57,7 +57,7 @@ def traverse_tree(env:kuhn_poker.KuhnPokerNumpy):
     state = env.init(0)
     history = ()
 
-    def _traverse(state: kuhn_poker.State, history: Tuple):
+    def _traverse(state: kuhn_poker.State, history: tuple):
         node = Node(state, history)
         if node.is_terminal:
             return node

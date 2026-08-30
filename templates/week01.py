@@ -240,9 +240,7 @@ def iterated_removal_of_dominated_strategies(
         col_remove = []
 
         for i in range(reduced_matrix1.shape[0]):
-            ge = reduced_matrix1 >= reduced_matrix1[i, :][None, :]          # ≥ componentwise
-            gt = reduced_matrix1 >  reduced_matrix1[i, :][None, :]          # > somewhere
-            result = np.all(ge, axis=1) & np.any(gt, axis=1)
+            result = np.all(reduced_matrix1 > reduced_matrix1[i, :][None, :], axis=1)
             result[i] = False
 
             if result.any():
@@ -259,9 +257,7 @@ def iterated_removal_of_dominated_strategies(
 
 
         for i in range(reduced_matrix2.shape[1]):
-            ge = reduced_matrix2 >= reduced_matrix2[:, i][:, None]
-            gt = reduced_matrix2 >  reduced_matrix2[:, i][:, None]
-            result = np.all(ge, axis=0) & np.any(gt, axis=0)
+            result = np.all(reduced_matrix2 > reduced_matrix2[:, i][:, None], axis=0)
             result[i] = False
 
             if result.any():

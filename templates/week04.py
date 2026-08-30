@@ -112,7 +112,9 @@ def find_correlated_equilibrium(row_matrix: np.ndarray, col_matrix: np.ndarray) 
     A_eq=np.ones((1,num_var))
     b_eq=1
 
-    result = linprog(c, A_ub=A_ub, A_eq=A_eq, b_ub=b_ub, b_eq=b_eq, method="highs")
+    bounds = [(0.0, 1.0)] * num_var
+
+    result = linprog(c, A_ub=A_ub, A_eq=A_eq, b_ub=b_ub, b_eq=b_eq, bounds=bounds, method="highs")
 
     if result.success:
         prob_matrix=np.asarray(result.x).reshape(num_row, num_col)

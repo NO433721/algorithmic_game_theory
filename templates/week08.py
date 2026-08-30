@@ -4,9 +4,30 @@ import itertools
 import numpy as np
 from week07 import *
 from week04 import find_nash_equilibrium
-from typing import Dict, List, Set, Tuple
 
+def _collect_sequences(node:Node, pid, sequences: set[tuple], current_sequence: tuple, parent_sequences: dict, actions_at_info_set: dict, action_counts):
+        
+        if node.is_terminal:
+            return
 
+        if node.is_chance:
+            for _, child in node.children.items():
+                _collect_sequences(child, pid, sequences, current_sequence, parent_sequences, actions_at_info_set, action_counts)
+    
+        elif node.player == pid:
+            parent_sequences[node.info_set] = current_sequence
+            actions_at_info_set[node.info_set] = tuple(int(action) for action in node.children)
+            action_counts[node.info_set] = len(node.actions)
+
+            for action, child in node.children.items():
+                next_sequence = current_sequence + ((node.info_set, int(action)),)
+                sequences.add(next_sequence)
+                _collect_sequences(child, pid, sequences, next_sequence, parent_sequences, actions_at_info_set, action_counts)
+    
+        else:
+            for _, child in node.children.items():
+                _collect_sequences(child, pid, sequences, current_sequence, parent_sequences, actions_at_info_set, action_counts)
+    
 
 def convert_to_normal_form(root: Node) -> tuple[np.ndarray, np.ndarray]:
     """Convert an extensive-form game into an equivalent normal-form representation.
@@ -21,31 +42,31 @@ def convert_to_normal_form(root: Node) -> tuple[np.ndarray, np.ndarray]:
         A pair of payoff matrices for the two players in the resulting normal-form game.
     """
 
-    def _collect_available_actions(node: Node|TerminalNode|PlayerNode|ChanceNode, player_id: int, available_actions: Dict):
+    def _collect_available_actions(node: Node, player_id: int, available_actions: dict):
 
         if node.is_terminal:
             return available_actions
 
-        if isinstance(node, ChanceNode):
+        if node.is_chance:
 
-            for action, (child, prob) in node.children.items():
+            for action, child in node.children.items():
                 _collect_available_actions(child, player_id, available_actions)
 
-        elif isinstance(node, PlayerNode):
 
-            if node.player == player_id:
-                if node.info_set not in available_actions:
-                    
-                    available_actions[node.info_set] = []
+        elif node.player == player_id:
+            if node.info_set not in available_actions:
+                
+                available_actions[node.info_set] = []
 
-                    for action, child in node.children.items():
-                        available_actions[node.info_set].append(action)
+            actions = tuple(int(action) for action in node.children)
 
-                for action, child in node.children.items():
-                    _collect_available_actions(child, player_id, available_actions)
-            else:
-                for action, child in node.children.items():
-                    _collect_available_actions(child, player_id, available_actions)
+            available_actions[node.info_set] = (actions, len(node.actions))
+
+            for action, child in node.children.items():
+                _collect_available_actions(child, player_id, available_actions)
+        else:
+            for action, child in node.children.items():
+                _collect_available_actions(child, player_id, available_actions)
 
         return available_actions
 
@@ -54,7 +75,7 @@ def convert_to_normal_form(root: Node) -> tuple[np.ndarray, np.ndarray]:
         pure_strategies = []
 
         info_sets = list(available_actions.keys())
-        list_of_action_lists = [available_actions[info_set] for info_set in info_sets]
+        list_of_action_lists = [available_actions[info_set][0] for info_set in info_sets]
 
         combinations = itertools.product(*list_of_action_lists)
 
@@ -69,7 +90,7 @@ def convert_to_normal_form(root: Node) -> tuple[np.ndarray, np.ndarray]:
 
         return pure_strategies
 
-    def _compute_expected_utility(player_0_strategy: Dict, player_1_strategy: Dict) -> np.ndarray:
+    def _compute_expected_utility(player_0_strategy: dict, player_1_strategy: dict) -> np.ndarray:
         strategies = {0: player_0_strategy, 1: player_1_strategy}
         return evaluate(root, strategies)
 
@@ -108,33 +129,20 @@ def convert_to_sequence_form(root) -> tuple[np.ndarray, ...]:
     tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
         A tuple containing the sequence-form payoff matrices and realization-plan constraints.
     """
-    def _collect_sequences(node:Node|TerminalNode|PlayerNode|ChanceNode, pid, sequences:set[tuple], current_sequence:tuple):
-        
-        if node.is_terminal:
-            return
-
-        if isinstance(node, ChanceNode):
-            for _, (child, _) in node.children.items():
-                _collect_sequences(child, pid, sequences, current_sequence)
-
-        if isinstance(node, PlayerNode):
-            if node.player == pid:
-                for action, child in node.children.items():
-                    next_sequence = current_sequence + (action,)
-                    sequences.add(next_sequence)
-                    _collect_sequences(child, pid, sequences, next_sequence)
-            else:
-                for _, child in node.children.items():
-                    _collect_sequences(child, pid, sequences, current_sequence)
-
     player_1_sequences = set()
     player_2_sequences = set()
 
     player_1_sequences.add(())
     player_2_sequences.add(())
 
-    _collect_sequences(root, 0, player_1_sequences, ())
-    _collect_sequences(root, 1, player_2_sequences, ())
+    player_1_parent_sequences = {}
+    player_1_actions_at_info_set = {}
+
+    player_2_parent_sequences = {}
+    player_2_actions_at_info_set = {}
+
+    _collect_sequences(root, 0, player_1_sequences, (), player_1_parent_sequences, player_1_actions_at_info_set)
+    _collect_sequences(root, 1, player_2_sequences, (), player_2_parent_sequences, player_2_actions_at_info_set)
    
     player_1_sequences = sorted(player_1_sequences, key=lambda s: (len(s), s))
     player_1_sequence_to_index = {sequence: i for i, sequence in enumerate(player_1_sequences)}
@@ -154,8 +162,9 @@ def convert_to_sequence_form(root) -> tuple[np.ndarray, ...]:
             player_2_payoff_matrix[i, j] += current_reach_probability * node.payoffs[1]
             return
 
-        if isinstance(node, ChanceNode):
-            for _, (child, prob) in node.children.items():
+        if node.is_chance:
+            for action, child in node.children.items():
+                prob = node.chance_strategy[action]
                 _compute_sequence_form_payoff_matrix(
                     child,
                     player_1_sequence,
@@ -163,37 +172,73 @@ def convert_to_sequence_form(root) -> tuple[np.ndarray, ...]:
                     current_reach_probability * prob,
                 )
             return
+        
+        for action, child in node.children.items():
+            if node.player == 0:
+                next_p1 = player_1_sequence + ((node.info_set, action),)
+                _compute_sequence_form_payoff_matrix(
+                    child,
+                    next_p1,
+                    player_2_sequence,
+                    current_reach_probability,
+                )
+            else:
+                next_p2 = player_2_sequence + ((node.info_set, action),)
+                _compute_sequence_form_payoff_matrix(
+                    child,
+                    player_1_sequence,
+                    next_p2,
+                    current_reach_probability,
+                )
+    
+    def _compute_realization_plan_constraints(sequences: list, sequence_to_index: dict, parent_sequences: dict, actions_at_info_set: dict):
+        number_of_constraints = 1 + len(actions_at_info_set)
 
-        if isinstance(node, PlayerNode):
-            for action, child in node.children.items():
-                if node.player == 0:
-                    next_p1 = player_1_sequence + (action,)
-                    _compute_sequence_form_payoff_matrix(
-                        child,
-                        next_p1,
-                        player_2_sequence,
-                        current_reach_probability,
-                    )
-                else:
-                    next_p2 = player_2_sequence + (action,)
-                    _compute_sequence_form_payoff_matrix(
-                        child,
-                        player_1_sequence,
-                        next_p2,
-                        current_reach_probability,
-                    )
+        constraint_matrix = np.zeros((number_of_constraints, len(sequences)))
+        constraint_vector = np.zeros(number_of_constraints)
+
+        empty_sequence_index = sequence_to_index[()]
+
+        constraint_matrix[0, empty_sequence_index] = 1
+        constraint_vector[0] = 1
+
+        for row, (info_set, actions) in enumerate(
+            actions_at_info_set.items(),
+            start=1,
+        ):
+            parent_sequence = parent_sequences[info_set]
+            parent_index = sequence_to_index[parent_sequence]
+
+            constraint_matrix[row, parent_index] = 1
+
+            for action in actions:
+                child_sequence = parent_sequence + (
+                    (info_set, action),
+                )
+                child_index = sequence_to_index[child_sequence]
+
+                constraint_matrix[row, child_index] = -1
+        
+        return constraint_matrix, constraint_vector
 
     _compute_sequence_form_payoff_matrix(root, (), (), 1.0)
 
-    return (
-        player_1_payoff_matrix,
-        player_2_payoff_matrix,
+    E, e = _compute_realization_plan_constraints(
+        player_1_sequences,
+        player_1_sequence_to_index,
+        player_1_parent_sequences,
+        player_1_actions_at_info_set,
     )
 
+    F, f = _compute_realization_plan_constraints(
+        player_2_sequences,
+        player_2_sequence_to_index,
+        player_2_parent_sequences,
+        player_2_actions_at_info_set,
+    )
+    return player_1_payoff_matrix, player_2_payoff_matrix, E, e, F, f   
 
-    
-
-def find_nash_equilibrium_sequence_form(root) -> tuple[np.ndarray, np.ndarray]:
+def find_nash_equilibrium_sequence_form(root: Node) -> tuple[np.ndarray, np.ndarray]:
     """Find a Nash equilibrium in a zero-sum extensive-form game using Sequence-form LP.
 
     This function is expected to received an extensive-form game as input
@@ -209,10 +254,56 @@ def find_nash_equilibrium_sequence_form(root) -> tuple[np.ndarray, np.ndarray]:
     
 
 
-def convert_realization_plan_to_behavioral_strategy(*args, **kwargs):
+def convert_realization_plan_to_behavioral_strategy(root, realization_plan, player):
     """Convert a realization plan to a behavioral strategy."""
+    if player not in (0, 1):
+        raise ValueError("player must be 0 or 1")
 
-    raise NotImplementedError
+    sequence_set = {()}
+    parent_sequences = {}
+    actions_at_info_set = {}
+    action_counts = {}
+
+    _collect_sequences(
+        root,
+        player,
+        sequence_set,
+        (),
+        parent_sequences,
+        actions_at_info_set,
+        action_counts,
+    )
+
+    sequences = sorted(sequence_set, key=lambda sequence: (len(sequence), sequence))
+
+    sequence_to_index = {sequence: index for index, sequence in enumerate(sequences)}
+
+    realization_plan = np.asarray(realization_plan, dtype=np.float64)
+
+    behavioral_strategy = {}
+
+    for info_set, actions in actions_at_info_set.items():
+        parent_sequence = parent_sequences[info_set]
+        parent_index = sequence_to_index[parent_sequence]
+        parent_weight = realization_plan[parent_index]
+
+        local_strategy = np.zeros(action_counts[info_set], dtype=np.float64)
+
+        if parent_weight > 1e-12:
+            for action in actions:
+                child_sequence = parent_sequence + ((info_set, action))
+                child_index = sequence_to_index[child_sequence]
+
+                local_strategy[action] = max(0.0, realization_plan[child_index]) / parent_weight
+
+            local_strategy /= local_strategy.sum()
+        else:
+            local_strategy[list(actions)] = (1.0 / len(actions))
+
+        behavioral_strategy[info_set] = local_strategy
+
+    return behavioral_strategy
+
 
 
 def main() -> None:
