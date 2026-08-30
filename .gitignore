@@ -3,3 +3,6 @@ matplotlibrc
 
 .venv
 solutions
+Miniconda3-latest-Linux-*.sh
+__pycache__/
+*.py[cod]
