@@ -3,7 +3,7 @@ from week07 import *
 import numpy as np
 
 def regret_matching(regrets, legal_mask):
-    positive = np.where(legal_mask, np.maximum(regrets, 0.0))
+    positive = np.where(legal_mask, np.maximum(regrets, 0.0), 0.0)
 
     if positive.sum() > 0:
         return positive / positive.sum()
@@ -99,7 +99,8 @@ def cfr(root: Node, info_sets, iter: int):
         strategy = make_strategy()
 
         for player in players:
-            traverse(root, player, strategy, np.ones(len(players)), chance_reach=1.0, average_visited)
+            average_visited = set()
+            traverse(root, player, strategy, np.ones(len(players)), chance_reach=1.0, average_visited=average_visited)
 
         average_strategy = {player: {} for player in players}
 
