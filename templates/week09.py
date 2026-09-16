@@ -12,7 +12,64 @@ def regret_matching(regrets, legal_mask):
 
     return strategy / strategy.sum()
 
-def cfr(root: Node, info_sets, iter: int):
+def make_strategy(players, info_sets, player_info_sets, regrets):
+        strategy = {player: {} for player in players}
+
+        for player in players:
+            for info_set in player_info_sets[player]:
+                node = info_sets[info_set][0]
+                legal_mask = node.legal_action_mask.astype(bool)
+
+                strategy[player][info_set] = regret_matching(regrets[player][info_set], legal_mask)
+
+        return strategy
+
+def cfr_traverse(node, pid, strategy, reach, chance_reach, strategy_sums, averaging_weight, average_visited, local_regrets):
+        if node.is_terminal:
+            return node.payoffs[pid]
+        
+        if node.is_chance:
+            value = 0.0
+            for action, child in node.children.items():
+                prob = node.chance_strategy[action]
+                value += prob * cfr_traverse(child, pid, strategy, reach, chance_reach * prob, strategy_sums, averaging_weight, average_visited, local_regrets)
+            
+            return value
+
+        player = node.player
+        info_set = node.info_set
+        local_strategy = strategy[player][info_set]
+
+        action_values = np.zeros(len(node.actions))
+
+        for action, child in node.children.items():
+            next_reach = reach.copy()
+            next_reach[player] *= local_strategy[action]
+
+            action_values[action] = cfr_traverse(child, pid, strategy, next_reach, chance_reach, strategy_sums, averaging_weight, average_visited, local_regrets)
+
+        node_value = np.dot(local_strategy, action_values)
+
+        if player == pid:
+            key = (player, info_set)
+
+            if key not in average_visited:
+                strategy_sums[player][info_set] += (averaging_weight * reach[player] * local_strategy)
+            average_visited.add(key)
+
+            counterfactual_reach = chance_reach
+
+            for other_player in range(len(reach)):
+                if other_player != player:
+                    counterfactual_reach *= reach[other_player]
+
+            legal = node.legal_action_mask.astype(bool)
+
+            local_regrets[info_set][legal] += (counterfactual_reach * (action_values[legal] - node_value))
+
+        return node_value
+
+def cfr(root: Node, info_sets, num_iter: int):
     """Run the CFR algorithm for a given number of iterations."""
     players = sorted({int(nodes[0].player) for nodes in info_sets.values()})
 
@@ -32,75 +89,14 @@ def cfr(root: Node, info_sets, iter: int):
 
             cumulative_regrets[player][info_set] = np.zeros(num_actions)
             strategy_sums[player][info_set] = np.zeros(num_actions)
-
-    def make_strategy():
-        strategy = {player: {} for player in players}
-
-        for player in players:
-            for info_set in player_info_sets[player]:
-                node = info_sets[info_set][0]
-                legal_mask = node.legal_action_mask.astype(bool)
-
-                strategy[player][info_set] = regret_matching(cumulative_regrets[player][info_set], legal_mask)
-
-        return strategy
-
-    def traverse(node, pid, strategy, reach, chance_reach, average_visited):
-        if node.is_terminal:
-            return node.payoffs[pid]
-        
-        if node.is_chance:
-            value = 0.0
-            for action, child in node.children.items():
-                prob = node.chance_strategy[action]
-                value += prob * traverse(child, pid, strategy, reach, chance_reach * prob, average_visited)
-            
-            return value
-
-        player = node.player
-        info_set = node.info_set
-        local_strategy = strategy[player][info_set]
-
-
-        if player == pid:
-            key = (player, info_set)
-
-            if key not in average_visited:
-                strategy_sums[player][info_set] += (reach[player] * local_strategy)
-
-            average_visited.add(key)
-
-        action_values = np.zeros(len(node.actions))
-
-        for action, child in node.children.items():
-            next_reach = reach.copy()
-            next_reach[player] *= local_strategy[action]
-
-            action_values[action] = traverse(child, pid, strategy, next_reach, chance_reach, average_visited)
-
-        node_value = np.dot(local_strategy, action_values)
-
-        if player == pid:
-            counterfactual_reach = chance_reach
-
-            for other_player in range(len(reach)):
-                if other_player != player:
-                    counterfactual_reach *= reach[other_player]
-
-            legal = node.legal_action_mask.astype(bool)
-
-            cumulative_regrets[player][info_set][legal] += (counterfactual_reach * (action_values[legal] - node_value))
-
-        return node_value
-        
+    
     history = []
 
-    for _ in range(iter):
-        strategy = make_strategy()
+    for _ in range(num_iter):
+        strategy = make_strategy(players, info_sets, player_info_sets, cumulative_regrets)
 
         for player in players:
-            average_visited = set()
-            traverse(root, player, strategy, np.ones(len(players)), chance_reach=1.0, average_visited=average_visited)
+            cfr_traverse(root, player, strategy, np.ones(len(players)), 1.0, strategy_sums, 1.0, set(), cumulative_regrets[player])
 
         average_strategy = {player: {} for player in players}
 
@@ -117,14 +113,10 @@ def cfr(root: Node, info_sets, iter: int):
         history.append(average_strategy)
 
     return history
-
-
         
-
-
-
-def cfr_plus(root: Node, info_sets, iter: int):
+def cfr_plus(root: Node, info_sets, num_iter: int):
     """Run the CFR+ algorithm for a given number of iterations."""
+    
     players = sorted({int(nodes[0].player) for nodes in info_sets.values()})
 
     player_info_sets = {player: [] for player in players}
@@ -143,79 +135,27 @@ def cfr_plus(root: Node, info_sets, iter: int):
 
             cumulative_regrets[player][info_set] = np.zeros(num_actions)
             strategy_sums[player][info_set] = np.zeros(num_actions)
-
-    def make_strategy():
-        strategy = {player: {} for player in players}
-
-        for player in players:
-            for info_set in player_info_sets[player]:
-                node = info_sets[info_set][0]
-                legal_mask = node.legal_action_mask.astype(bool)
-
-                strategy[player][info_set] = regret_matching(cumulative_regrets[player][info_set], legal_mask)
-
-        return strategy
-
-    def traverse(node, pid, strategy, reach, chance_reach, average_visited):
-        if node.is_terminal:
-            return node.payoffs[pid]
-        
-        if node.is_chance:
-            value = 0.0
-            for action, child in node.children.items():
-                prob = node.chance_strategy[action]
-                value += prob * traverse(child, pid, strategy, reach, chance_reach * prob, average_visited)
-            
-            return value
-
-        player = node.player
-        info_set = node.info_set
-        local_strategy = strategy[player][info_set]
-
-
-        if player == pid:
-            key = (player, info_set)
-
-            if key not in average_visited:
-                averaging_weight = iter + 1
-                strategy_sums[player][info_set] += (averaging_weight * reach[player] * local_strategy)
-            average_visited.add(key)
-
-        action_values = np.zeros(len(node.actions))
-
-        for action, child in node.children.items():
-            next_reach = reach.copy()
-            next_reach[player] *= local_strategy[action]
-
-            action_values[action] = traverse(child, pid, strategy, next_reach, chance_reach, average_visited)
-
-        node_value = np.dot(local_strategy, action_values)
-
-        if player == pid:
-            counterfactual_reach = chance_reach
-
-            for other_player in range(len(reach)):
-                if other_player != player:
-                    counterfactual_reach *= reach[other_player]
-
-            legal = node.legal_action_mask.astype(bool)
-
-            cumulative_regrets[player][info_set][legal] = np.maximum(
-                counterfactual_reach cumulative_regrets[player][info_set][legal] 
-                + counterfactual_reach * (action_values[legal] - node_value),
-                0.0,
-            )
-
-        return node_value
-        
+    
     history = []
 
-    for _ in range(iter):
+    for i in range(1, num_iter+1):
 
         for player in players:
-            strategy = make_strategy()
-            average_visited = set()
-            traverse(root, player, strategy, np.ones(len(players)), chance_reach=1.0, average_visited)
+            strategy = make_strategy(players, info_sets, player_info_sets, cumulative_regrets)
+
+            local_regrets = {
+            info_set: np.zeros_like(cumulative_regrets[player][info_set])
+            for info_set in player_info_sets[player]
+            }
+
+            cfr_traverse(root, player, strategy, np.ones(len(players)), 1.0, strategy_sums, i, set(), local_regrets)
+
+            for info_set in player_info_sets[player]:
+                cumulative_regrets[player][info_set] = np.maximum(
+                    cumulative_regrets[player][info_set]
+                    + local_regrets[info_set],
+                    0.0
+                )
 
         average_strategy = {player: {} for player in players}
 

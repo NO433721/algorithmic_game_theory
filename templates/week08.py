@@ -3,7 +3,7 @@
 import itertools
 import numpy as np
 from week07 import *
-from week04 import find_nash_equilibrium
+from scipy.optimize import linprog
 
 def _collect_sequences(node:Node, pid, sequences: set[tuple], current_sequence: tuple, parent_sequences: dict, actions_at_info_set: dict, action_counts):
         
@@ -141,9 +141,12 @@ def convert_to_sequence_form(root) -> tuple[np.ndarray, ...]:
     player_2_parent_sequences = {}
     player_2_actions_at_info_set = {}
 
-    _collect_sequences(root, 0, player_1_sequences, (), player_1_parent_sequences, player_1_actions_at_info_set)
-    _collect_sequences(root, 1, player_2_sequences, (), player_2_parent_sequences, player_2_actions_at_info_set)
-   
+    player_1_action_counts = {}
+    player_2_action_counts = {}
+
+    _collect_sequences(root, 0, player_1_sequences, (), player_1_parent_sequences, player_1_actions_at_info_set, player_1_action_counts)
+    _collect_sequences(root, 1, player_2_sequences, (), player_2_parent_sequences, player_2_actions_at_info_set, player_2_action_counts)
+
     player_1_sequences = sorted(player_1_sequences, key=lambda s: (len(s), s))
     player_1_sequence_to_index = {sequence: i for i, sequence in enumerate(player_1_sequences)}
 
@@ -249,10 +252,77 @@ def find_nash_equilibrium_sequence_form(root: Node) -> tuple[np.ndarray, np.ndar
     tuple[np.ndarray, np.ndarray]
         A pair of realization plans for the two players for representing a Nash equilibrium.
     """
-    payoff_matrix, _ = convert_to_sequence_form(root)
-    return find_nash_equilibrium(payoff_matrix)
-    
+    A, B, E, e, F, f = convert_to_sequence_form(root)
 
+    A = np.asarray(A, dtype=float)
+    B = np.asarray(B, dtype=float)
+    E = np.asarray(E, dtype=float)
+    e = np.asarray(e, dtype=float)
+    F = np.asarray(F, dtype=float)
+    f = np.asarray(f, dtype=float)
+
+    if not np.allclose(A + B, 0.0):
+        raise ValueError("The game must be zero-sum.")
+
+    num_sequences_0 = A.shape[0]
+    num_sequences_1 = A.shape[1]
+    num_constraints_0 = E.shape[0]
+    num_constraints_1 = F.shape[0]
+
+    result_0 = linprog(
+        c=np.concatenate([
+            np.zeros(num_sequences_0),
+            -f,
+        ]),
+        A_ub=np.hstack([
+            -A.T,
+            F.T,
+        ]),
+        b_ub=np.zeros(num_sequences_1),
+        A_eq=np.hstack([
+            E,
+            np.zeros((num_constraints_0, num_constraints_1)),
+        ]),
+        b_eq=e,
+        bounds=(
+            [(0.0, None)] * num_sequences_0
+            + [(None, None)] * num_constraints_1
+        ),
+        method="highs",
+    )
+
+    if not result_0.success:
+        raise RuntimeError(f"Player 0 LP failed: {result_0.message}")
+
+    result_1 = linprog(
+        c=np.concatenate([
+            np.zeros(num_sequences_1),
+            e,
+        ]),
+        A_ub=np.hstack([
+            A,
+            -E.T,
+        ]),
+        b_ub=np.zeros(num_sequences_0),
+        A_eq=np.hstack([
+            F,
+            np.zeros((num_constraints_1, num_constraints_0)),
+        ]),
+        b_eq=f,
+        bounds=(
+            [(0.0, None)] * num_sequences_1
+            + [(None, None)] * num_constraints_0
+        ),
+        method="highs",
+    )
+
+    if not result_1.success:
+        raise RuntimeError(f"Player 1 LP failed: {result_1.message}")
+
+    realization_plan_0 = result_0.x[:num_sequences_0]
+    realization_plan_1 = result_1.x[:num_sequences_1]
+
+    return realization_plan_0, realization_plan_1
 
 def convert_realization_plan_to_behavioral_strategy(root, realization_plan, player):
     """Convert a realization plan to a behavioral strategy."""
@@ -291,7 +361,7 @@ def convert_realization_plan_to_behavioral_strategy(root, realization_plan, play
 
         if parent_weight > 1e-12:
             for action in actions:
-                child_sequence = parent_sequence + ((info_set, action))
+                child_sequence = parent_sequence + ((info_set, action),)
                 child_index = sequence_to_index[child_sequence]
 
                 local_strategy[action] = max(0.0, realization_plan[child_index]) / parent_weight

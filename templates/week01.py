@@ -28,17 +28,11 @@ def evaluate_general_sum(
         A vector of expected utilities of the players
     """
 
-    # Compute the expected utility for the row player
     row_expected_utility = row_strategy @ row_matrix @ col_strategy
 
-    # Compute the expected utility for the column player
     col_expected_utility = row_strategy @ col_matrix @ col_strategy
 
     return np.array([row_expected_utility, col_expected_utility], dtype=float)
-
-
-    # raise NotImplementedError
-
     
 
 
@@ -62,7 +56,6 @@ def evaluate_zero_sum(
         A vector of expected utilities of the players
     """
 
-    # raise NotImplementedError
     row_expected_utility = row_strategy @ row_matrix @ col_strategy
     col_expected_utility = -row_expected_utility
 
@@ -169,7 +162,6 @@ def evaluate_col_against_best_response(
         The expected utility of the column player
     """
 
-    # raise NotImplementedError
     row_expected=row_matrix@col_strategy
     row_br=np.argmax(row_expected)
 
@@ -196,8 +188,6 @@ def find_strictly_dominated_actions(matrix: np.ndarray) -> np.ndarray:
     np.ndarray
         Indices of strictly dominated actions
     """
-
-    # raise NotImplementedError
 
     dominated = []
     for i in range(matrix.shape[0]):              
@@ -236,41 +226,23 @@ def iterated_removal_of_dominated_strategies(
     actions2 = [i for i in range(col_matrix.shape[1])]
 
     while True:
-        row_remove = []
-        col_remove = []
+        row_remove = find_strictly_dominated_actions(reduced_matrix1)
 
-        for i in range(reduced_matrix1.shape[0]):
-            result = np.all(reduced_matrix1 > reduced_matrix1[i, :][None, :], axis=1)
-            result[i] = False
-
-            if result.any():
-                row_remove.append(i)
-                
-                
-        if row_remove:
-            # remove ONLY the smallest-index dominated row, then restart
-            i = min(row_remove)
+        if row_remove.size > 0:
+            i = row_remove[0]
             reduced_matrix1 = np.delete(reduced_matrix1, i, axis=0)
             reduced_matrix2 = np.delete(reduced_matrix2, i, axis=0)
             actions1.pop(i)
             continue
 
+        col_remove = find_strictly_dominated_actions(reduced_matrix2.T)
 
-        for i in range(reduced_matrix2.shape[1]):
-            result = np.all(reduced_matrix2 > reduced_matrix2[:, i][:, None], axis=0)
-            result[i] = False
-
-            if result.any():
-                col_remove.append(i)
-                
-        if col_remove:
-            # remove ONLY the smallest-index dominated column, then restart
-            j = min(col_remove)
+        if col_remove.size > 0:
+            j = col_remove[0]
             reduced_matrix1 = np.delete(reduced_matrix1, j, axis=1)
             reduced_matrix2 = np.delete(reduced_matrix2, j, axis=1)
             actions2.pop(j)
             continue
-
 
         break
 
