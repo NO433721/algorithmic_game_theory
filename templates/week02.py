@@ -39,7 +39,7 @@ def plot_best_response_value_function(row_matrix: np.ndarray, step_size: float) 
 
 
 def verify_support(
-    matrix: np.ndarray, row_support: np.ndarray, col_support: np.ndarray
+    matrix: np.ndarray, row_support: np.ndarray, col_support: np.ndarray, check_best_response: bool = False
 ) -> np.ndarray | None:
     """Construct a system of linear equations to check whether there
     exists a candidate for a Nash equilibrium for the given supports.
@@ -83,12 +83,42 @@ def verify_support(
     bounds = [(0, None) for _ in range(A_eq.shape[1])]
     bounds[-1]=(None, None)
 
-    
-    result = linprog(c, A_eq=A_eq, b_eq=b_eq,
+    A_ub = None
+    b_ub = None
+
+    if check_best_response:
+        num_probs = len(col_support)
+        num_actions = matrix.shape[0]
+
+        A_eq = np.hstack((A_eq, np.zeros((A_eq.shape[0], 1)),))
+
+        c = np.zeros(num_probs + 2)
+        c[-1] = -1.0
+
+        bounds.append((0, None))
+
+        A_ub = np.hstack((
+            matrix[:, col_support],
+            -np.ones((num_actions, 1)),
+            np.zeros((num_actions, 1)),
+        ))
+
+        prob_constraints = np.zeros((num_probs, num_probs + 2))
+
+        for j in range(num_probs):
+            prob_constraints[j, j] = -1.0
+            prob_constraints[j, -1] = 1.0
+
+        A_ub = np.vstack((A_ub, prob_constraints))
+        b_ub = np.zeros(num_actions + num_probs)
+        
+    result = linprog(c, A_eq=A_eq, b_eq=b_eq, A_ub=A_ub, b_ub=b_ub,
                      bounds=bounds, method="highs")
 
     if result.success and result.x.size == A_eq.shape[1]:
-        q = result.x[:-1].astype(np.float64)                 
+        if check_best_response and result.x[-1] <= 1e-9:
+            return None
+        q = result.x[:len(col_support)].astype(np.float64)                 
 
         return q
     else:
@@ -121,19 +151,15 @@ def support_enumeration(
                 for col_support in combinations(range(num_col_strategies), col_support_size):
 
                     
-                    if len(row_support) == 1 or len(col_support) == 1:
-                        if len(col_support) != 1 or len(row_support) != 1:
-                            continue
+                    if len(row_support) == 1 and len(col_support) == 1:
 
                         i = row_support[0]  
                         j = col_support[0]  
 
-                        
-                        if int(np.argmax(col_matrix[i, :])) != j:
+                        if col_matrix[i, j] < np.max(col_matrix[i, :]):
                             continue
 
-                        
-                        if int(np.argmax(row_matrix[:, j])) != i:
+                        if row_matrix[i, j] < np.max(row_matrix[:, j]):
                             continue
 
                         
@@ -147,8 +173,8 @@ def support_enumeration(
 
                     else:
                        
-                        row_probs_on_sup = verify_support(col_matrix.T, col_support, row_support)  # row player's probs on row_support
-                        col_probs_on_sup = verify_support(row_matrix,    row_support, col_support)  # col player's probs on col_support
+                        row_probs_on_sup = verify_support(col_matrix.T, col_support, row_support, True)  # row player's probs on row_support
+                        col_probs_on_sup = verify_support(row_matrix,    row_support, col_support, True)  # col player's probs on col_support
 
                         if row_probs_on_sup is not None and col_probs_on_sup is not None:
                            
